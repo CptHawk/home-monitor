@@ -1,24 +1,26 @@
 #!/bin/bash
-# Home Monitor Grid Stream - 1920x1080 HLS for Roku TVs
-# Direct RTSPS to UniFi Protect + doorbell via go2rtc relay
-# Restarts every 5 min to pick up fresh info panels + recover from stream drops
+# Home Monitor Grid Stream - Live RTSP via go2rtc (rtspx protocol)
+# All cameras through go2rtc relay - one connection each to Protect
+#
+# KEY INSIGHT: Use rtspx:// in go2rtc config instead of rtsps://.
+# rtsps:// (SRTP) connections to UniFi Protect drop after 2-3 minutes.
+# rtspx:// produces clean H.264 that ffmpeg can consume without NAL errors.
+# See docs/FINDINGS.md for details.
 
 HLSDIR="/tmp/hls"
 mkdir -p "$HLSDIR"
 
 while true; do
-    echo "[$(date)] Starting ffmpeg grid stream (5 min cycle)..."
+    rm -f "$HLSDIR"/grid*.ts "$HLSDIR"/grid.m3u8
 
-    ffmpeg -hide_banner -loglevel error \
-        -err_detect ignore_err \
-        -rtsp_transport tcp -timeout 5000000 -i "rtsps://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_1?enableSrtp" \
-        -err_detect ignore_err \
-        -rtsp_transport tcp -timeout 5000000 -i "rtsps://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_2?enableSrtp" \
-        -err_detect ignore_err \
-        -rtsp_transport tcp -timeout 5000000 -i "rtsps://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_3?enableSrtp" \
-        -err_detect ignore_err \
-        -rtsp_transport tcp -timeout 5000000 -i "rtsps://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_4?enableSrtp" \
-        -loop 1 -framerate 0.5 -i /tmp/doorbell_snap.jpg \
+    echo "[$(date)] Starting ffmpeg grid stream (live RTSP via go2rtc)..."
+
+    ffmpeg -hide_banner -loglevel warning \
+        -rtsp_transport tcp -fflags +discardcorrupt+genpts -i "rtsp://127.0.0.1:8554/camera-1" \
+        -rtsp_transport tcp -fflags +discardcorrupt+genpts -i "rtsp://127.0.0.1:8554/camera-2" \
+        -rtsp_transport tcp -fflags +discardcorrupt+genpts -i "rtsp://127.0.0.1:8554/camera-3" \
+        -rtsp_transport tcp -fflags +discardcorrupt+genpts -i "rtsp://127.0.0.1:8554/camera-4" \
+        -rtsp_transport tcp -fflags +discardcorrupt+genpts -i "rtsp://127.0.0.1:8554/nest-doorbell" \
         -loop 1 -framerate 0.1 -i /tmp/radar.png \
         -loop 1 -framerate 0.1 -i /tmp/weather_panel.png \
         -loop 1 -framerate 0.1 -i /tmp/forecast_panel.png \
@@ -40,12 +42,11 @@ while true; do
         -map "[out]" -an \
         -c:v libx264 -preset ultrafast -tune zerolatency \
         -b:v 5M -maxrate 5M -bufsize 10M -g 30 -sc_threshold 0 \
-        -t 300 \
         -f hls -hls_time 2 -hls_list_size 10 \
         -hls_flags delete_segments+append_list \
         -hls_segment_filename "$HLSDIR/grid%03d.ts" \
         "$HLSDIR/grid.m3u8"
 
-    echo "[$(date)] Cycle ended ($?). Restarting in 2s..."
-    sleep 2
+    echo "[$(date)] ffmpeg exited ($?). Restarting in 5s..."
+    sleep 5
 done

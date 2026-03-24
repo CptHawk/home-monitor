@@ -4,10 +4,16 @@ A self-hosted home monitoring dashboard that unifies security cameras, smart hom
 
 ![Dashboard Layout](https://img.shields.io/badge/cameras-5-green) ![Python](https://img.shields.io/badge/python-3.11+-blue) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
+## Key Discovery: rtspx:// Protocol
+
+If you are using go2rtc with UniFi Protect cameras and experiencing stream drops every 2-3 minutes, switch from `rtsps://` to `rtspx://` in your go2rtc config. The SRTP encryption overhead causes Protect to terminate long-lived connections. The `rtspx://` protocol produces clean H.264 that ffmpeg can consume indefinitely without NAL errors.
+
+See [docs/FINDINGS.md](docs/FINDINGS.md) for full technical details on camera streaming, Nest doorbell integration, Roku TV display, and other discoveries.
+
 ## Features
 
-- **UniFi Protect Cameras** — Live MSE video streams and snapshots via go2rtc
-- **Google Nest Doorbell** — WebRTC stream bridged through go2rtc for unified viewing
+- **UniFi Protect Cameras** — Live RTSP streams via go2rtc relay using rtspx:// protocol
+- **Google Nest Doorbell** — WebRTC stream bridged and transcoded through go2rtc
 - **Google Nest Thermostat** — Real-time temperature, humidity, HVAC status via SDM API
 - **Z-Wave Door Sensors** — Real-time open/closed status via Z-Wave JS UI
 - **Weather Underground PWS** — Local weather data from any nearby personal weather station
@@ -15,7 +21,7 @@ A self-hosted home monitoring dashboard that unifies security cameras, smart hom
 - **Weather Panel** — Pillow-rendered current conditions panel with outside/inside temps, humidity, wind, rain, UV, pressure, and thermostat status
 - **7-Day NWS Forecast** — Pillow-rendered forecast panel with high/low temps, precipitation chance, and daily conditions from the National Weather Service API
 - **Thermostat Integration** — Real-time Nest thermostat data (mode, HVAC status, setpoint) displayed in weather panel and ffmpeg grid overlay
-- **Roku TV Channel** — Custom sideloaded channel that displays a live HLS grid of all cameras with live RTSPS cameras, Pillow-rendered weather panels, 7-day forecast, and thermostat overlay
+- **Roku TV Channel** — Custom sideloaded channel that displays a live HLS grid of all cameras with Pillow-rendered weather panels, 7-day forecast, and thermostat overlay
 - **Web Dashboard** — Responsive dark-themed UI accessible from any browser
 - **TV Dashboard** — 1920x1080 optimized layout for large displays
 
@@ -23,11 +29,11 @@ A self-hosted home monitoring dashboard that unifies security cameras, smart hom
 
 ```
                                 ┌─────────────┐
-[UniFi Protect] ──RTSPS──────► │             │
-[Nest Doorbell] ──WebRTC─────► │   go2rtc    │ ◄── MJPEG/RTSP/HLS/MSE out
+[UniFi Protect] ──rtspx──────► │             │
+[Nest Doorbell] ──WebRTC─────► │   go2rtc    │ ◄── RTSP/MJPEG/HLS/MSE out
 [Nest Thermostat] ──SDM API──► │  :1984      │
                                 └──────┬──────┘
-                                       │
+                                       │ RTSP (relay)
 [Weather Underground] ──HTTP──►  ┌─────┴──────┐     ┌──────────────┐
 [NWS Radar] ──HTTP───────────►  │  FastAPI    │────►│ Web Browser  │
 [Z-Wave JS UI] ──Socket.IO──►  │  :8092      │     │ (Dashboard)  │
@@ -37,6 +43,15 @@ A self-hosted home monitoring dashboard that unifies security cameras, smart hom
                                 │   ffmpeg    │────►│  Roku TV     │
                                 │ grid-stream │     │ (HLS Player) │
                                 └─────────────┘     └──────────────┘
+```
+
+**go2rtc camera config (rtspx, not rtsps):**
+```yaml
+streams:
+  camera-1: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_1
+  camera-2: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_2
+  nest-doorbell-raw: "nest:?client_id=...&project_id=...&device_id=..."
+  nest-doorbell: "ffmpeg:nest-doorbell-raw#video=h264#audio=aac"
 ```
 
 ## Quick Start
@@ -64,6 +79,7 @@ pip install -r requirements.txt
 cd go2rtc
 cp config/go2rtc.yaml.example config/go2rtc.yaml
 # Edit config/go2rtc.yaml with your camera RTSP URLs and Nest credentials
+# IMPORTANT: Use rtspx:// (not rtsps://) for UniFi Protect cameras
 docker compose up -d
 cd ..
 ```
@@ -93,10 +109,9 @@ Open `http://YOUR_SERVER:8092` in your browser.
 screen -dmS weatherpanel python3 scripts/render-weather-panel.py
 
 # Start the info overlay data fetcher (for ffmpeg drawtext fallback)
-screen -dmS infooverlay bash scripts/info-overlay.sh
+screen -dmS infooverlay bash scripts/update-grid-info.sh
 
-# Start the ffmpeg grid stream with live RTSPS cameras + panels
-# Edit scripts/start-grid.sh with your camera RTSP URLs first
+# Start the ffmpeg grid stream with live RTSP cameras via go2rtc relay
 screen -dmS gridstream bash scripts/start-grid.sh
 ```
 
@@ -155,7 +170,7 @@ curl -X POST https://oauth2.googleapis.com/token \
 
 7. Copy the `refresh_token` from the response into your `.env` file
 
-**Note:** If your Google account has Advanced Protection enabled, you'll need to temporarily disable it for the OAuth flow. Re-enable it after — the refresh token persists.
+**Note:** If your Google account has Advanced Protection enabled, you will need to temporarily disable it for the OAuth flow. Re-enable it after — the refresh token persists. See [docs/FINDINGS.md](docs/FINDINGS.md) for details.
 
 ## go2rtc Camera Configuration
 
@@ -165,17 +180,19 @@ go2rtc bridges various camera protocols into standard formats (RTSP, MJPEG, HLS,
 
 1. Enable RTSP in UniFi Protect: **Settings > Camera > RTSP**
 2. Copy the RTSP URL for each camera
-3. Add to `go2rtc/config/go2rtc.yaml`
+3. Add to `go2rtc/config/go2rtc.yaml` using **rtspx://** protocol (not rtsps://)
+
+**Important:** Use `rtspx://` instead of `rtsps://` to avoid stream drops. See [docs/FINDINGS.md](docs/FINDINGS.md) for the full explanation.
 
 ### Nest Doorbell
 
-go2rtc has native Nest/WebRTC support. Add your SDM API credentials to the config. The doorbell stream will be available alongside your other cameras.
+go2rtc has native Nest/WebRTC support. Add your SDM API credentials to the config. The raw WebRTC stream needs transcoding to produce clean H.264 — use go2rtc's ffmpeg bridge.
 
 **Note:** Nest Doorbell Wired (3rd gen) does not support the `GenerateImage` snapshot API. go2rtc bridges the WebRTC stream and can serve snapshots via `/api/frame.jpeg`.
 
 ## Roku Channel
 
-The custom Roku channel plays a live HLS grid stream generated by ffmpeg combining all camera feeds.
+The custom Roku channel plays a live HLS grid stream generated by ffmpeg combining all camera feeds via go2rtc's RTSP relay.
 
 ### Layout
 
@@ -186,11 +203,11 @@ The custom Roku channel plays a live HLS grid stream generated by ffmpeg combini
 ├───────────────┼───────────────┤ 480x1080 │
 │   Camera 3    │   Camera 4    │          │
 │   720x370     │   720x370     │          │
-├──────────┬────┬──────────┬────┼──────────┤
-│   Radar  │ Weather Panel │  7-Day   │          │
-│  480x340 │  (Pillow)    │ Forecast │          │
-│          │  480x340     │  480x340 │          │
-└──────────┴────┴──────────┴────┴──────────┘
+├──────────┬────┴───────┬───────┴──────────┤
+│  Radar   │  Weather   │    7-Day         │
+│  480x340 │  Panel     │    Forecast      │
+│          │  480x340   │    480x340       │
+└──────────┴────────────┴──────────────────┘
 ```
 
 ### Deploying to multiple Roku TVs
@@ -257,8 +274,19 @@ The dashboard supports two weather sources:
 |---------|-------------|---------|
 | Home Monitor | 8092 | Web dashboard + REST API |
 | go2rtc | 1984 | Camera stream bridge (RTSP/MJPEG/HLS/MSE) |
-| go2rtc RTSP | 8554 | RTSP relay for Roku IP Camera Viewer |
+| go2rtc RTSP | 8554 | RTSP relay for ffmpeg grid + Roku |
 | Z-Wave JS UI | 8091 | Z-Wave sensor management |
+
+## Technical Findings
+
+See [docs/FINDINGS.md](docs/FINDINGS.md) for detailed notes on:
+
+- The rtspx:// vs rtsps:// protocol discovery for UniFi Protect
+- go2rtc NAL error debugging and fixes
+- Nest Doorbell WebRTC-to-RTSP bridging with transcoding
+- Roku TV limitations and the ffmpeg grid stream workaround
+- UniFi Protect snapshot API reliability issues
+- Google Advanced Protection workaround for Nest OAuth
 
 ## License
 

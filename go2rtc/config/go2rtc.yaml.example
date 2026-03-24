@@ -1,13 +1,17 @@
 streams:
   # UniFi Protect cameras (enable RTSP in Protect settings first)
-  camera-1: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_1?enableSrtp
-  camera-2: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_2?enableSrtp
-  camera-3: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_3?enableSrtp
-  camera-4: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_4?enableSrtp
+  # IMPORTANT: Use rtspx:// (not rtsps://) to avoid stream drops after 2-3 minutes.
+  # See docs/FINDINGS.md for details on this discovery.
+  camera-1: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_1
+  camera-2: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_2
+  camera-3: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_3
+  camera-4: rtspx://YOUR_UNIFI_IP:7441/YOUR_STREAM_KEY_4
 
   # Google Nest Doorbell (requires Device Access API setup)
   # Get credentials from https://console.nest.google.com/device-access
-  nest-doorbell: "nest:?client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&refresh_token=YOUR_REFRESH_TOKEN&project_id=YOUR_PROJECT_ID&device_id=YOUR_DEVICE_ID"
+  # Raw WebRTC stream has NAL type 26 errors - must transcode via ffmpeg bridge
+  nest-doorbell-raw: "nest:?client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&refresh_token=YOUR_REFRESH_TOKEN&project_id=YOUR_PROJECT_ID&device_id=YOUR_DEVICE_ID"
+  nest-doorbell: "ffmpeg:nest-doorbell-raw#video=h264#audio=aac"
 
 api:
   listen: ":1984"
