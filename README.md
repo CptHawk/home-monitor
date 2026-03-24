@@ -95,6 +95,14 @@ screen -dmS gridstream bash scripts/grid-stream.sh
 
 ### 7. Deploy to Roku TVs (optional)
 
+First, enable Developer Mode on each Roku:
+
+1. On the Roku remote, press: **Home (x3), Up (x2), Right, Left, Right, Left, Right**
+2. Accept the license agreement and set a developer password
+3. The Roku will reboot with Developer Mode enabled
+
+Then build and deploy:
+
 ```bash
 cd roku
 # Edit components/DashboardScene.brs — set YOUR_SERVER_IP
