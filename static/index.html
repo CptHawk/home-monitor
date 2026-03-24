@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Monitor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0f1117;
+  --card: #1a1d27;
+  --card-border: #2a2d3a;
+  --text: #e0e0e0;
+  --text-dim: #888;
+  --accent: #4a9eff;
+  --green: #2ecc71;
+  --red: #e74c3c;
+  --orange: #f39c12;
+  --purple: #9b59b6;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--card-border);
+}
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .status {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.status-dot.on { background: var(--green); }
+.status-dot.off { background: var(--red); }
+
+/* Grid layout */
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 16px;
+  padding: 16px 24px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Cards */
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--accent); }
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--card-border);
+}
+.card-header h3 { font-size: 14px; font-weight: 600; }
+.card-header .badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.badge.online { background: rgba(46,204,113,0.15); color: var(--green); }
+.badge.offline { background: rgba(231,76,60,0.15); color: var(--red); }
+.badge.pending { background: rgba(243,156,18,0.15); color: var(--orange); }
+
+/* Camera cards */
+.camera-img, .camera-video {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  background: #000;
+  display: block;
+  cursor: pointer;
+}
+
+/* Thermostat card */
+.thermo-body {
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.thermo-temp {
+  font-size: 48px;
+  font-weight: 300;
+  line-height: 1;
+}
+.thermo-temp .unit { font-size: 20px; color: var(--text-dim); }
+.thermo-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.thermo-details .label { color: var(--text); font-weight: 500; }
+
+/* Sensor cards */
+.sensor-body {
+  padding: 16px;
+}
+.sensor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--card-border);
+}
+.sensor-row:last-child { border-bottom: none; }
+.sensor-name { font-size: 14px; }
+.sensor-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sensor-state.closed { color: var(--green); }
+.sensor-state.open { color: var(--red); }
+
+/* Doorbell card */
+.doorbell-body {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.doorbell-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.doorbell-event .icon { font-size: 18px; }
+
+/* Lock placeholder */
+.lock-body {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.lock-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.3; }
+
+/* Nest setup banner */
+.setup-banner {
+  padding: 16px;
+  text-align: center;
+}
+.setup-banner a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
+.setup-banner a:hover { text-decoration: underline; }
+
+/* Camera modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.modal-overlay.active { display: flex; }
+.modal-content {
+  max-width: 95vw;
+  max-height: 95vh;
+}
+.modal-content img, .modal-content video {
+  max-width: 100%;
+  max-height: 90vh;
+  border-radius: 8px;
+}
+.modal-content video {
+  background: #000;
+  width: 90vw;
+  max-width: 1280px;
+}
+.modal-title {
+  text-align: center;
+  padding: 8px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* Section headers */
+.section-label {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  padding: 8px 0 0 0;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .dashboard { grid-template-columns: 1fr; padding: 8px; gap: 8px; }
+  .header { padding: 12px 16px; }
+  .thermo-temp { font-size: 36px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Home Monitor</h1>
+  <div class="status">
+    <span><span class="status-dot" id="dot-unifi"></span>Protect</span>
+    <span><span class="status-dot" id="dot-nest"></span>Nest</span>
+    <span><span class="status-dot" id="dot-zwave"></span>Z-Wave</span>
+  </div>
+</div>
+
+<div class="dashboard" id="dashboard">
+  <!-- Cameras section -->
+  <div class="section-label">Cameras</div>
+  <div id="cameras-grid"></div>
+
+  <!-- Climate & Doorbell -->
+  <div class="section-label">Climate & Doorbell</div>
+
+  <!-- Thermostat -->
+  <div class="card" id="thermostat-card">
+    <div class="card-header">
+      <h3>Thermostat</h3>
+      <span class="badge pending" id="thermo-badge">--</span>
+    </div>
+    <div class="thermo-body">
+      <div class="thermo-temp">
+        <span id="thermo-temp">--</span><span class="unit">&deg;F</span>
+      </div>
+      <div class="thermo-details">
+        <div><span class="label">Humidity:</span> <span id="thermo-humidity">--</span>%</div>
+        <div><span class="label">Mode:</span> <span id="thermo-mode">--</span></div>
+        <div><span class="label">HVAC:</span> <span id="thermo-hvac">--</span></div>
+        <div><span class="label">Setpoint:</span> <span id="thermo-setpoint">--</span></div>
+      </div>
+    </div>
+    <div class="setup-banner" id="nest-setup" style="display:none">
+      <a href="#" onclick="nestAuth()">Connect Google Nest</a>
+    </div>
+  </div>
+
+  <!-- Doorbell -->
+  <div class="card" id="doorbell-card">
+    <div class="card-header">
+      <h3>Nest Doorbell</h3>
+      <span class="badge pending" id="doorbell-badge">--</span>
+    </div>
+    <div class="doorbell-body" id="doorbell-body">
+      <div class="doorbell-status">
+        <div class="doorbell-features" id="doorbell-features"></div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px" id="doorbell-updated"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sensors & Lock -->
+  <div class="section-label">Sensors & Lock</div>
+
+  <!-- Door Sensors -->
+  <div class="card" id="sensors-card">
+    <div class="card-header">
+      <h3>Door Sensors</h3>
+      <span class="badge pending" id="sensors-badge">Z-Wave</span>
+    </div>
+    <div class="sensor-body" id="sensors-body">
+      <div style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">
+        Waiting for sensors...
+      </div>
+    </div>
+  </div>
+
+  <!-- Lock placeholder -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Smart Lock</h3>
+      <span class="badge pending">Pending</span>
+    </div>
+    <div class="lock-body">
+      <div class="lock-icon">&#x1F512;</div>
+      <p>Integration pending</p>
+    </div>
+  </div>
+</div>
+
+<!-- Camera fullscreen modal -->
+<div class="modal-overlay" id="modal" onclick="closeModal()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <video id="modal-video" autoplay muted playsinline style="display:none"></video>
+    <img id="modal-img" src="" style="display:none">
+    <div class="modal-title" id="modal-title"></div>
+  </div>
+</div>
+
+<script>
+// Configuration: go2rtc runs on the same host as this page, port 1984
+const GO2RTC_HOST = window.location.hostname;
+const GO2RTC_PORT = 1984;
+const GO2RTC = `http://${GO2RTC_HOST}:${GO2RTC_PORT}`;
+const GO2RTC_WS = `ws://${GO2RTC_HOST}:${GO2RTC_PORT}`;
+
+// State
+let cameras = [];
+let cameraIntervals = {};
+const SNAPSHOT_INTERVAL = 5000;
+const THERMOSTAT_INTERVAL = 60000;
+const STATUS_INTERVAL = 15000;
+
+// Map camera names to go2rtc stream names
+const GO2RTC_STREAMS = {
+  'Deck': 'deck',
+  'Driveway': 'driveway',
+  'Front Yard': 'front-yard',
+  'Front Yard ': 'front-yard',
+  'Side Walkway': 'side-walkway',
+};
+
+function getStreamName(camName) {
+  return GO2RTC_STREAMS[camName] || camName.toLowerCase().replace(/\s+/g, '-');
+}
+
+// ---- Cameras ----
+async function loadCameras() {
+  try {
+    const r = await fetch('/api/cameras');
+    if (!r.ok) return;
+    cameras = await r.json();
+    renderCameras();
+  } catch(e) {
+    console.error('Camera load error:', e);
+  }
+}
+
+function renderCameras() {
+  const grid = document.getElementById('cameras-grid');
+  const parent = grid.parentElement;
+  grid.remove();
+
+  // All cameras (UniFi + Nest) via go2rtc MSE live streams
+  const allCams = [
+    ...cameras.map(c => ({ id: c.id, name: c.name.trim(), stream: getStreamName(c.name), state: c.state })),
+    { id: 'doorbell', name: 'Nest Doorbell', stream: 'nest-doorbell', state: 'CONNECTED' }
+  ];
+
+  allCams.forEach(cam => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <h3>${cam.name}</h3>
+        <span class="badge ${cam.state === 'CONNECTED' ? 'online' : 'offline'}">${cam.state === 'CONNECTED' ? 'Online' : cam.state}</span>
+      </div>
+      <video class="camera-video" id="cam-${cam.stream}"
+             autoplay muted playsinline
+             onclick="openModal('${cam.stream}', '${cam.name}')"></video>
+    `;
+    const climateLabel = parent.querySelectorAll('.section-label')[1];
+    parent.insertBefore(card, climateLabel);
+  });
+
+  // Start MSE streams for all cameras
+  allCams.forEach(cam => {
+    startCameraStream(cam.stream);
+  });
+}
+
+// Persistent MSE stream for a camera card
+function startCameraStream(streamName) {
+  const video = document.getElementById(`cam-${streamName}`);
+  if (!video) return;
+  connectMSE(video, streamName);
+}
+
+function connectMSE(video, streamName) {
+  const ws = new WebSocket(`${GO2RTC_WS}/api/ws?src=${streamName}`);
+  let ms, sb;
+  const queue = [];
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'mse' }));
+  };
+
+  ws.onmessage = async (ev) => {
+    if (typeof ev.data === 'string') {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'mse') {
+        ms = new MediaSource();
+        video.src = URL.createObjectURL(ms);
+        ms.addEventListener('sourceopen', () => {
+          sb = ms.addSourceBuffer(msg.value);
+          sb.mode = 'segments';
+          sb.addEventListener('updateend', () => {
+            if (queue.length > 0 && !sb.updating) {
+              sb.appendBuffer(queue.shift());
+            }
+          });
+        });
+      }
+    } else {
+      const data = await ev.data.arrayBuffer();
+      if (sb && !sb.updating) {
+        try { sb.appendBuffer(data); } catch(e) {}
+      } else {
+        queue.push(data);
+        while (queue.length > 30) queue.shift();
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    // Reconnect after 3s
+    setTimeout(() => connectMSE(video, streamName), 3000);
+  };
+  ws.onerror = () => ws.close();
+
+  // Store ws ref for cleanup
+  video._ws = ws;
+}
+
+function openModal(streamName, camName) {
+  const modal = document.getElementById('modal');
+  const video = document.getElementById('modal-video');
+  const img = document.getElementById('modal-img');
+  const title = document.getElementById('modal-title');
+
+  title.textContent = camName + ' (Live)';
+  modal.classList.add('active');
+
+  img.style.display = 'none';
+  video.style.display = 'block';
+  connectMSE(video, streamName);
+}
+
+function closeModal() {
+  const modal = document.getElementById('modal');
+  const video = document.getElementById('modal-video');
+  const img = document.getElementById('modal-img');
+  modal.classList.remove('active');
+  if (modal._interval) clearInterval(modal._interval);
+  if (video._ws) {
+    video._ws.close();
+    video._ws = null;
+  }
+  video.src = '';
+  video.style.display = 'none';
+  img.style.display = 'none';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ---- Thermostat ----
+async function loadThermostat() {
+  try {
+    const r = await fetch('/api/thermostat');
+    const data = await r.json();
+    if (data.error) {
+      document.getElementById('thermo-badge').textContent = 'Not Connected';
+      document.getElementById('nest-setup').style.display = 'block';
+      return;
+    }
+    document.getElementById('nest-setup').style.display = 'none';
+    document.getElementById('thermo-temp').textContent = data.temperature_f || '--';
+    document.getElementById('thermo-humidity').textContent = data.humidity || '--';
+    document.getElementById('thermo-mode').textContent = data.mode || '--';
+    document.getElementById('thermo-hvac').textContent = data.hvac_status || '--';
+
+    let setpoint = '--';
+    if (data.heat_setpoint_c) setpoint = Math.round(data.heat_setpoint_c * 9/5 + 32) + '\u00B0F';
+    else if (data.cool_setpoint_c) setpoint = Math.round(data.cool_setpoint_c * 9/5 + 32) + '\u00B0F';
+    document.getElementById('thermo-setpoint').textContent = setpoint;
+
+    const badge = document.getElementById('thermo-badge');
+    if (data.hvac_status === 'HEATING') { badge.textContent = 'Heating'; badge.className = 'badge'; badge.style.cssText = 'background:rgba(231,76,60,0.15);color:#e74c3c'; }
+    else if (data.hvac_status === 'COOLING') { badge.textContent = 'Cooling'; badge.className = 'badge'; badge.style.cssText = 'background:rgba(74,158,255,0.15);color:#4a9eff'; }
+    else { badge.textContent = 'Idle'; badge.className = 'badge online'; badge.style.cssText = ''; }
+  } catch(e) {
+    console.error('Thermostat error:', e);
+  }
+}
+
+// ---- Doorbell ----
+async function loadDoorbell() {
+  try {
+    const r = await fetch('/api/doorbell');
+    const data = await r.json();
+    const features = document.getElementById('doorbell-features');
+    const badge = document.getElementById('doorbell-badge');
+    const updated = document.getElementById('doorbell-updated');
+    if (data.error) {
+      badge.textContent = 'Not Connected';
+      features.innerHTML = '<p>Waiting for Nest connection...</p>';
+      return;
+    }
+    badge.textContent = 'Connected';
+    badge.className = 'badge online';
+
+    let html = `<div style="font-size:15px;font-weight:500;margin-bottom:8px">${data.name}</div>`;
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+    if (data.hasMotion) html += '<span style="background:rgba(74,158,255,0.15);color:var(--accent);padding:4px 10px;border-radius:8px;font-size:12px">Motion Detection</span>';
+    if (data.hasPerson) html += '<span style="background:rgba(155,89,182,0.15);color:var(--purple);padding:4px 10px;border-radius:8px;font-size:12px">Person Detection</span>';
+    if (data.hasChime) html += '<span style="background:rgba(243,156,18,0.15);color:var(--orange);padding:4px 10px;border-radius:8px;font-size:12px">Chime</span>';
+    if (data.supportsStream) html += '<span style="background:rgba(46,204,113,0.15);color:var(--green);padding:4px 10px;border-radius:8px;font-size:12px">WebRTC Stream</span>';
+    html += '</div>';
+    if (data.maxResolution && data.maxResolution.width) {
+      html += `<div style="font-size:12px;color:var(--text-dim);margin-top:8px">${data.maxResolution.width}x${data.maxResolution.height}</div>`;
+    }
+
+    features.innerHTML = html;
+    updated.textContent = `Updated: ${new Date(data.updated).toLocaleTimeString()}`;
+  } catch(e) {}
+}
+
+// ---- Z-Wave Sensors ----
+async function loadSensors() {
+  try {
+    const r = await fetch('/api/sensors');
+    const data = await r.json();
+    const body = document.getElementById('sensors-body');
+    const badge = document.getElementById('sensors-badge');
+
+    if (!data.nodes || data.nodes.length === 0) {
+      badge.textContent = 'No Sensors';
+      badge.className = 'badge pending';
+      body.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">No sensors paired yet.</div>';
+      return;
+    }
+
+    badge.textContent = `${data.nodes.length} Sensor${data.nodes.length > 1 ? 's' : ''}`;
+    badge.className = 'badge online';
+
+    let html = '';
+    for (const node of data.nodes) {
+      const isOpen = node.doorOpen;
+      const stateClass = isOpen ? 'open' : 'closed';
+      const stateText = isOpen === null ? 'Unknown' : (isOpen ? 'OPEN' : 'CLOSED');
+      const stateIcon = isOpen ? '&#x1F7E2;' : '&#x1F534;';
+      const battery = node.battery !== null ? `${node.battery}%` : '';
+
+      html += `
+        <div class="sensor-row">
+          <div>
+            <div class="sensor-name">${node.name || node.productLabel || 'Door Sensor'}</div>
+            <div style="font-size:11px;color:var(--text-dim)">${node.location || ''} ${battery ? '| Battery: ' + battery : ''}</div>
+          </div>
+          <div class="sensor-state ${stateClass}">${stateIcon} ${stateText}</div>
+        </div>
+      `;
+    }
+    body.innerHTML = html;
+  } catch(e) {}
+}
+
+// ---- WebSocket for real-time sensor updates ----
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'sensor') {
+      loadSensors(); // Simple: just reload all sensors on any update
+    }
+  };
+  ws.onclose = () => setTimeout(connectWS, 3000);
+  ws.onerror = () => ws.close();
+}
+
+// ---- Nest OAuth ----
+async function nestAuth() {
+  try {
+    const r = await fetch('/api/nest/auth');
+    const data = await r.json();
+    if (data.auth_url) {
+      window.open(data.auth_url, '_blank');
+    } else {
+      alert(data.error || 'Failed to start Nest auth');
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ---- Status ----
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    document.getElementById('dot-unifi').className = 'status-dot ' + (data.unifi_connected ? 'on' : 'off');
+    document.getElementById('dot-nest').className = 'status-dot ' + (data.nest_authorized ? 'on' : (data.nest_configured ? 'off' : 'off'));
+    document.getElementById('dot-zwave').className = 'status-dot on'; // Always on since Z-Wave JS UI runs locally
+  } catch(e) {}
+}
+
+// ---- Init ----
+async function init() {
+  await loadStatus();
+  await loadCameras();
+  loadThermostat();
+  loadDoorbell();
+  loadSensors();
+  connectWS();
+
+  setInterval(loadThermostat, THERMOSTAT_INTERVAL);
+  setInterval(loadDoorbell, THERMOSTAT_INTERVAL);
+  setInterval(loadSensors, 30000);
+  setInterval(loadStatus, STATUS_INTERVAL);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+streams:
+  # UniFi Protect cameras (enable RTSP in Protect settings first)
+  camera-1: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_1?enableSrtp
+  camera-2: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_2?enableSrtp
+  camera-3: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_3?enableSrtp
+  camera-4: rtsps://YOUR_UNIFI_IP:7441/YOUR_RTSP_KEY_4?enableSrtp
+
+  # Google Nest Doorbell (requires Device Access API setup)
+  # Get credentials from https://console.nest.google.com/device-access
+  nest-doorbell: "nest:?client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&refresh_token=YOUR_REFRESH_TOKEN&project_id=YOUR_PROJECT_ID&device_id=YOUR_DEVICE_ID"
+
+api:
+  listen: ":1984"
+  origin: "*"

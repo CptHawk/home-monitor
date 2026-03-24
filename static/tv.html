@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920,height=1080">
+<title>Home Monitor TV</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: #0a0c12;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.tv-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr auto;
+  width: 1920px;
+  height: 1080px;
+  gap: 3px;
+  padding: 3px;
+  grid-template-areas:
+    "cam1 cam2 cam3"
+    "cam4 cam5 radar"
+    "banner banner banner";
+}
+
+.cam { position: relative; overflow: hidden; background: #111; border-radius: 4px; }
+.cam video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cam-label {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+  z-index: 2;
+}
+.cam-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #2ecc71;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.cam1 { grid-area: cam1; }
+.cam2 { grid-area: cam2; }
+.cam3 { grid-area: cam3; }
+.cam4 { grid-area: cam4; }
+.cam5 { grid-area: cam5; }
+
+.radar {
+  grid-area: radar;
+  background: #0a0c12;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.radar img {
+  flex: 1;
+  width: 100%;
+  object-fit: contain;
+  min-height: 0;
+}
+.radar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.5);
+}
+.radar-title {
+  color: #4a9eff;
+  font-size: 14px;
+  font-weight: 600;
+}
+.weather-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #aaa;
+}
+.weather-stats .wval { color: #fff; font-weight: 500; }
+.weather-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px;
+  background: rgba(0,0,0,0.4);
+}
+.wx-temp {
+  font-size: 42px;
+  font-weight: 300;
+  color: #fff;
+}
+.wx-temp .unit { font-size: 18px; color: #666; }
+.wx-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: #aaa;
+}
+.wx-details .wval { color: #fff; }
+
+/* Banner */
+.banner {
+  grid-area: banner;
+  background: linear-gradient(180deg, #13161d 0%, #0b0d12 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 68px;
+  border-top: 1px solid #1e2130;
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.banner-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #4a9eff;
+}
+
+.thermo-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 20px;
+  border-left: 1px solid #2a2d3a;
+}
+.thermo-icon { font-size: 24px; }
+.thermo-big {
+  font-size: 32px;
+  font-weight: 300;
+  color: #fff;
+}
+.thermo-big .unit { font-size: 16px; color: #666; }
+.thermo-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #888;
+}
+.thermo-meta .val { color: #ddd; font-weight: 500; }
+.hvac-badge {
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.hvac-idle { background: rgba(46,204,113,0.15); color: #2ecc71; }
+.hvac-heating { background: rgba(231,76,60,0.15); color: #e74c3c; }
+.hvac-cooling { background: rgba(74,158,255,0.15); color: #4a9eff; }
+
+.banner-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.door-sensors {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+}
+.door-sensor { display: flex; align-items: center; gap: 6px; }
+.door-closed { color: #2ecc71; }
+.door-open { color: #e74c3c; }
+.door-pending { color: #888; }
+
+.clock-section { text-align: right; min-width: 110px; }
+.clock-time {
+  font-size: 26px;
+  font-weight: 300;
+  color: #fff;
+}
+.clock-date {
+  font-size: 11px;
+  color: #666;
+}
+</style>
+</head>
+<body>
+
+<div class="tv-layout">
+  <div class="cam cam1" id="cam-slot-0">
+    <video autoplay muted playsinline></video>
+    <div class="cam-label"><span class="cam-dot"></span>Side Walkway</div>
+  </div>
+  <div class="cam cam2" id="cam-slot-1">
+    <video autoplay muted playsinline></video>
+    <div class="cam-label"><span class="cam-dot"></span>Front Yard</div>
+  </div>
+  <div class="cam cam3" id="cam-slot-2">
+    <video autoplay muted playsinline></video>
+    <div class="cam-label"><span class="cam-dot"></span>Driveway</div>
+  </div>
+  <div class="cam cam4" id="cam-slot-3">
+    <video autoplay muted playsinline></video>
+    <div class="cam-label"><span class="cam-dot"></span>Deck</div>
+  </div>
+  <div class="cam cam5" id="cam-slot-4">
+    <video autoplay muted playsinline></video>
+    <div class="cam-label"><span class="cam-dot"></span>Nest Doorbell</div>
+  </div>
+
+  <div class="radar">
+    <div class="radar-header">
+      <span class="radar-title">Weather Radar</span>
+      <div class="weather-stats">
+        <span>Wind: <span class="wval" id="wx-wind">--</span></span>
+        <span>Rain: <span class="wval" id="wx-rain">--</span></span>
+        <span>Pressure: <span class="wval" id="wx-pressure">--</span></span>
+      </div>
+    </div>
+    <div class="weather-main">
+      <div class="wx-temp"><span id="wx-temp">--</span><span class="unit">&deg;F</span></div>
+      <div class="wx-details">
+        <span>Humidity: <span class="wval" id="wx-humidity">--</span>%</span>
+        <span>Dew Point: <span class="wval" id="wx-dewpt">--</span>&deg;F</span>
+        <span>UV Index: <span class="wval" id="wx-uv">--</span></span>
+        <span id="wx-station" style="font-size:11px;color:#555"></span>
+      </div>
+    </div>
+    <img id="radar-img" src="/api/radar" alt="Weather Radar">
+  </div>
+
+  <div class="banner">
+    <div class="banner-left">
+      <div class="banner-title">Home Monitor</div>
+      <div class="thermo-section">
+        <div class="thermo-big"><span id="tv-temp">--</span><span class="unit">&deg;F</span></div>
+        <div class="thermo-meta">
+          <span>Humidity: <span class="val" id="tv-humidity">--</span>%</span>
+          <span>Mode: <span class="val" id="tv-mode">--</span></span>
+          <span>Set: <span class="val" id="tv-setpoint">--</span></span>
+        </div>
+        <span class="hvac-badge hvac-idle" id="tv-hvac">--</span>
+      </div>
+    </div>
+    <div class="banner-right">
+      <div class="door-sensors" id="door-sensors">
+        <div class="door-sensor door-pending">Door sensors: waiting</div>
+      </div>
+      <div class="clock-section">
+        <div class="clock-time" id="tv-clock"></div>
+        <div class="clock-date" id="tv-date"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Configuration: go2rtc runs on the same host, port 1984
+const GO2RTC_HOST = window.location.hostname;
+const GO2RTC_PORT = 1984;
+const GO2RTC = `http://${GO2RTC_HOST}:${GO2RTC_PORT}`;
+const GO2RTC_WS = `ws://${GO2RTC_HOST}:${GO2RTC_PORT}`;
+const API = window.location.origin;
+const SCREENSHOT_MODE = new URLSearchParams(window.location.search).has('mode') && new URLSearchParams(window.location.search).get('mode') === 'screenshot';
+
+const CAMS = ['side-walkway', 'front-yard', 'driveway', 'deck', 'nest-doorbell'];
+
+// ---- MSE Live Streams ----
+function connectMSE(video, streamName) {
+  const ws = new WebSocket(`${GO2RTC_WS}/api/ws?src=${streamName}`);
+  let ms, sb;
+  const queue = [];
+
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'mse' }));
+
+  ws.onmessage = async (ev) => {
+    if (typeof ev.data === 'string') {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'mse') {
+        ms = new MediaSource();
+        video.src = URL.createObjectURL(ms);
+        ms.addEventListener('sourceopen', () => {
+          sb = ms.addSourceBuffer(msg.value);
+          sb.mode = 'segments';
+          sb.addEventListener('updateend', () => {
+            if (queue.length > 0 && !sb.updating) sb.appendBuffer(queue.shift());
+            // Keep buffer trimmed to avoid memory growth
+            if (sb.buffered.length > 0 && sb.buffered.end(0) - sb.buffered.start(0) > 30) {
+              sb.remove(sb.buffered.start(0), sb.buffered.end(0) - 10);
+            }
+          });
+        });
+      }
+    } else {
+      const data = await ev.data.arrayBuffer();
+      if (sb && !sb.updating) {
+        try { sb.appendBuffer(data); } catch(e) {}
+      } else {
+        queue.push(data);
+        while (queue.length > 30) queue.shift();
+      }
+    }
+  };
+
+  ws.onclose = () => setTimeout(() => connectMSE(video, streamName), 3000);
+  ws.onerror = () => ws.close();
+}
+
+function initCameras() {
+  if (SCREENSHOT_MODE) {
+    // Use snapshot images for headless browser screenshot
+    CAMS.forEach((stream, i) => {
+      const slot = document.getElementById(`cam-slot-${i}`);
+      const video = slot.querySelector('video');
+      video.remove();
+      const img = document.createElement('img');
+      img.src = `${GO2RTC}/api/frame.jpeg?src=${stream}`;
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+      slot.insertBefore(img, slot.firstChild);
+    });
+  } else {
+    // Live MSE streams for real browsers
+    CAMS.forEach((stream, i) => {
+      const video = document.querySelector(`#cam-slot-${i} video`);
+      connectMSE(video, stream);
+    });
+  }
+}
+
+// ---- Radar ----
+function initRadar() {
+  setInterval(() => {
+    const img = document.getElementById('radar-img');
+    img.src = `/api/radar?t=${Date.now()}`;
+  }, 300000);
+}
+
+// ---- Weather ----
+async function updateWeather() {
+  try {
+    const r = await fetch(`${API}/api/weather`);
+    const d = await r.json();
+    if (d.error) return;
+    document.getElementById('wx-temp').textContent = d.temp_f || '--';
+    document.getElementById('wx-humidity').textContent = d.humidity || '--';
+    document.getElementById('wx-dewpt').textContent = d.dewpt || '--';
+    document.getElementById('wx-uv').textContent = d.uv !== null ? d.uv : '--';
+
+    const windDir = d.windDir !== null ? ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(d.windDir / 22.5) % 16] : '';
+    document.getElementById('wx-wind').textContent = `${d.windSpeed || 0} mph ${windDir}${d.windGust > d.windSpeed ? ' (G' + d.windGust + ')' : ''}`;
+    document.getElementById('wx-rain').textContent = `${d.precipRate || 0}"/hr (${d.precipTotal || 0}" today)`;
+    document.getElementById('wx-pressure').textContent = `${d.pressure || '--'} inHg`;
+  } catch(e) {}
+}
+
+// ---- Thermostat ----
+async function updateThermostat() {
+  try {
+    const r = await fetch(`${API}/api/thermostat`);
+    const d = await r.json();
+    if (d.error) return;
+    document.getElementById('tv-temp').textContent = d.temperature_f || '--';
+    document.getElementById('tv-humidity').textContent = d.humidity || '--';
+    document.getElementById('tv-mode').textContent = d.mode || '--';
+    let sp = '--';
+    if (d.heat_setpoint_c) sp = Math.round(d.heat_setpoint_c * 9/5 + 32) + '\u00B0F';
+    else if (d.cool_setpoint_c) sp = Math.round(d.cool_setpoint_c * 9/5 + 32) + '\u00B0F';
+    document.getElementById('tv-setpoint').textContent = sp;
+    const h = document.getElementById('tv-hvac');
+    if (d.hvac_status === 'HEATING') { h.textContent = 'HEATING'; h.className = 'hvac-badge hvac-heating'; }
+    else if (d.hvac_status === 'COOLING') { h.textContent = 'COOLING'; h.className = 'hvac-badge hvac-cooling'; }
+    else { h.textContent = 'IDLE'; h.className = 'hvac-badge hvac-idle'; }
+  } catch(e) {}
+}
+
+// ---- Door Sensors ----
+async function updateSensors() {
+  try {
+    const r = await fetch(`${API}/api/sensors`);
+    const d = await r.json();
+    const el = document.getElementById('door-sensors');
+    if (!d.nodes || d.nodes.length === 0) {
+      el.innerHTML = '<div class="door-sensor door-pending">Door sensors: waiting</div>';
+      return;
+    }
+    el.innerHTML = d.nodes.map(n => {
+      const open = n.doorOpen;
+      const cls = open ? 'door-open' : 'door-closed';
+      const txt = open === null ? 'Unknown' : (open ? 'OPEN' : 'CLOSED');
+      return `<div class="door-sensor ${cls}">${n.name || 'Door'}: ${txt}</div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ---- Clock ----
+function updateClock() {
+  const now = new Date();
+  document.getElementById('tv-clock').textContent = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  document.getElementById('tv-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+// ---- Init ----
+initCameras();
+initRadar();
+updateWeather();
+updateThermostat();
+updateSensors();
+updateClock();
+
+setInterval(updateWeather, 300000);   // 5 min
+setInterval(updateThermostat, 60000); // 1 min
+setInterval(updateSensors, 15000);    // 15s
+setInterval(updateClock, 1000);       // 1s
+</script>
+</body>
+</html>
