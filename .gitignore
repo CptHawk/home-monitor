@@ -5,3 +5,4 @@ venv/
 *.log
 /tmp/
 roku/images/
+go2rtc/config/go2rtc.yaml

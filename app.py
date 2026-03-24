@@ -21,7 +21,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 # ---------------------------------------------------------------------------
 # Config (all from .env)
 # ---------------------------------------------------------------------------
-UNIFI_HOST = os.getenv("UNIFI_HOST", "192.168.1.1")
+UNIFI_HOST = os.getenv("UNIFI_HOST", "YOUR_UNIFI_IP")
 UNIFI_USERNAME = os.getenv("UNIFI_USERNAME", "")
 UNIFI_PASSWORD = os.getenv("UNIFI_PASSWORD", "")
 
@@ -37,8 +37,8 @@ GO2RTC_HOST = os.getenv("GO2RTC_HOST", "localhost")
 GO2RTC_PORT = int(os.getenv("GO2RTC_PORT", "1984"))
 
 WU_STATION_ID = os.getenv("WU_STATION_ID", "")
-WU_API_KEY = os.getenv("WU_API_KEY", "6532d6454b8aa370768e63d6ba5a832e")
-RADAR_STATION = os.getenv("RADAR_STATION", "KRAX")
+WU_API_KEY = os.getenv("WU_API_KEY", "YOUR_WU_API_KEY")
+RADAR_STATION = os.getenv("RADAR_STATION", "YOUR_RADAR_STATION")
 
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("SERVER_PORT", "8092")

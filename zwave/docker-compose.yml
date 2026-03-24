@@ -6,7 +6,7 @@ services:
     tty: true
     stop_signal: SIGINT
     environment:
-      - TZ=America/New_York
+      - TZ=YOUR_TIMEZONE
     devices:
       - /dev/ttyACM0:/dev/zwave
     volumes:
