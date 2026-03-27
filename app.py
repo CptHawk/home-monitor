@@ -683,9 +683,104 @@ async def api_roku_overlay():
             "humidity": thermostat.get("humidity"),
             "mode": thermostat.get("mode"),
             "hvac_status": thermostat.get("hvac_status"),
+            "heat_setpoint_c": thermostat.get("heat_setpoint_c"),
+            "cool_setpoint_c": thermostat.get("cool_setpoint_c"),
         },
         "sensors": sensor_list,
     })
+
+
+@app.post("/api/roku/thermostat/setpoint")
+async def api_roku_thermostat_setpoint(delta_f: float = Query(..., description="Temperature change in F, e.g. 1 or -1")):
+    """Adjust thermostat setpoint by delta degrees Fahrenheit."""
+    device_id = None
+    devices = await nest_get_devices()
+    for d in devices:
+        if "THERMOSTAT" in d.get("type", ""):
+            device_id = d.get("name")
+            break
+    if not device_id:
+        return JSONResponse({"error": "No thermostat found"}, status_code=404)
+
+    token = await nest_get_token()
+    if not token:
+        return JSONResponse({"error": "Nest not authorized"}, status_code=401)
+
+    traits = {}
+    for d in devices:
+        if d.get("name") == device_id:
+            traits = d.get("traits", {})
+
+    mode = traits.get("sdm.devices.traits.ThermostatMode", {}).get("mode", "OFF")
+    setpoint = traits.get("sdm.devices.traits.ThermostatTemperatureSetpoint", {})
+
+    delta_c = delta_f * 5 / 9
+
+    if mode == "HEAT":
+        current_c = setpoint.get("heatCelsius", 20)
+        new_c = round(current_c + delta_c, 1)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat"
+        params = {"heatCelsius": new_c}
+    elif mode == "COOL":
+        current_c = setpoint.get("coolCelsius", 24)
+        new_c = round(current_c + delta_c, 1)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool"
+        params = {"coolCelsius": new_c}
+    elif mode == "HEATCOOL":
+        heat_c = setpoint.get("heatCelsius", 20)
+        cool_c = setpoint.get("coolCelsius", 24)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetRange"
+        params = {"heatCelsius": round(heat_c + delta_c, 1), "coolCelsius": round(cool_c + delta_c, 1)}
+    else:
+        return JSONResponse({"error": "Thermostat is OFF"}, status_code=400)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"https://smartdevicemanagement.googleapis.com/v1/{device_id}:executeCommand",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"command": command, "params": params},
+        )
+        if r.status_code == 200:
+            global thermostat_cache_time
+            thermostat_cache_time = 0
+            new_f = round(list(params.values())[0] * 9 / 5 + 32) if mode != "HEATCOOL" else None
+            return JSONResponse({"success": True, "new_setpoint_f": new_f, "params": params})
+        return JSONResponse({"error": r.text}, status_code=r.status_code)
+
+
+@app.post("/api/roku/thermostat/mode")
+async def api_roku_thermostat_mode(mode: str = Query(..., description="HEAT, COOL, HEATCOOL, or OFF")):
+    """Set thermostat mode."""
+    if mode not in ("HEAT", "COOL", "HEATCOOL", "OFF"):
+        return JSONResponse({"error": "Invalid mode. Use HEAT, COOL, HEATCOOL, or OFF"}, status_code=400)
+
+    device_id = None
+    devices = await nest_get_devices()
+    for d in devices:
+        if "THERMOSTAT" in d.get("type", ""):
+            device_id = d.get("name")
+            break
+    if not device_id:
+        return JSONResponse({"error": "No thermostat found"}, status_code=404)
+
+    token = await nest_get_token()
+    if not token:
+        return JSONResponse({"error": "Nest not authorized"}, status_code=401)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"https://smartdevicemanagement.googleapis.com/v1/{device_id}:executeCommand",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "command": "sdm.devices.commands.ThermostatMode.SetMode",
+                "params": {"mode": mode},
+            },
+        )
+        if r.status_code == 200:
+            global thermostat_cache_time
+            thermostat_cache_time = 0
+            return JSONResponse({"success": True, "mode": mode})
+        return JSONResponse({"error": r.text}, status_code=r.status_code)
 
 
 # --- HLS Grid Stream (for Roku) ---

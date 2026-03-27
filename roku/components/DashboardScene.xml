@@ -1,11 +1,66 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <component name="DashboardScene" extends="Scene">
   <children>
+    <!-- Main video player (grid or single camera) -->
     <Video id="gridVideo"
            width="1920"
            height="1080"
            translation="[0,0]"
            visible="true" />
+
+    <!-- Camera name label (shown in single-camera mode) -->
+    <Rectangle id="cameraLabelBg"
+               width="400"
+               height="50"
+               translation="[20,20]"
+               color="#000000"
+               opacity="0.7"
+               visible="false" />
+    <Label id="cameraLabel"
+           text=""
+           translation="[30,28]"
+           width="380"
+           font="font:MediumBoldSystemFont"
+           color="#00FF88"
+           visible="false" />
+
+    <!-- Mode indicator (top-right) -->
+    <Rectangle id="modeIndicatorBg"
+               width="200"
+               height="40"
+               translation="[1700,20]"
+               color="#000000"
+               opacity="0.6"
+               visible="false" />
+    <Label id="modeIndicator"
+           text="GRID"
+           translation="[1710,26]"
+           width="180"
+           font="font:SmallBoldSystemFont"
+           color="#FFFFFF"
+           horizAlign="center"
+           visible="false" />
+
+    <!-- Brief help toast (shown temporarily on first launch) -->
+    <Rectangle id="helpToastBg"
+               width="700"
+               height="60"
+               translation="[610,980]"
+               color="#000000"
+               opacity="0.8"
+               visible="false" />
+    <Label id="helpToast"
+           text="[OK] Camera  [*] Info  [<>] Switch  [Back] Grid"
+           translation="[620,994]"
+           width="680"
+           font="font:SmallSystemFont"
+           color="#AAAAAA"
+           horizAlign="center"
+           visible="false" />
+
+    <!-- Info overlay panel -->
+    <InfoOverlay id="infoOverlay" visible="false" />
   </children>
+
   <script type="text/brightscript" uri="pkg:/components/DashboardScene.brs" />
 </component>
