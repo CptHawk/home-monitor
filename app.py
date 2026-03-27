@@ -40,6 +40,9 @@ WU_STATION_ID = os.getenv("WU_STATION_ID", "")
 WU_API_KEY = os.getenv("WU_API_KEY", "YOUR_WU_API_KEY")
 RADAR_STATION = os.getenv("RADAR_STATION", "YOUR_RADAR_STATION")
 
+LEVITON_EMAIL = os.getenv("LEVITON_EMAIL", "")
+LEVITON_PASSWORD = os.getenv("LEVITON_PASSWORD", "")
+
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("SERVER_PORT", "8092")
 
@@ -57,6 +60,10 @@ thermostat_cache_time = 0
 
 zwave_sensors = {}
 ws_clients: list[WebSocket] = []
+
+leviton_session = None
+leviton_devices_cache = []
+leviton_cache_time = 0
 
 # ---------------------------------------------------------------------------
 # UniFi Protect helpers
@@ -342,6 +349,100 @@ async def zwave_get_nodes():
     return await asyncio.to_thread(zwave_call_api_sync, "getNodes")
 
 # ---------------------------------------------------------------------------
+# Leviton Decora Smart WiFi helpers (cloud API via decora_wifi)
+# ---------------------------------------------------------------------------
+def _leviton_login_sync():
+    """Log in to Leviton cloud. Returns session or None."""
+    global leviton_session
+    if not LEVITON_EMAIL or not LEVITON_PASSWORD:
+        return None
+    try:
+        from decora_wifi import DecoraWiFiSession
+        session = DecoraWiFiSession()
+        session.login(LEVITON_EMAIL, LEVITON_PASSWORD)
+        leviton_session = session
+        return session
+    except Exception as e:
+        print(f"Leviton login error: {e}")
+        return None
+
+
+def _leviton_get_session_sync():
+    global leviton_session
+    if leviton_session is not None:
+        return leviton_session
+    return _leviton_login_sync()
+
+
+def _leviton_get_devices_sync():
+    """Fetch all Leviton switches/dimmers. Returns list of dicts."""
+    global leviton_devices_cache, leviton_cache_time
+    now = time.time()
+    if leviton_devices_cache and now - leviton_cache_time < 30:
+        return leviton_devices_cache
+
+    session = _leviton_get_session_sync()
+    if not session:
+        return []
+
+    try:
+        from decora_wifi.models.residential_account import ResidentialAccount
+        devices = []
+        perms = session.user.get_residential_permissions()
+        for perm in perms:
+            acct = ResidentialAccount(session, perm.residentialAccountId)
+            for residence in acct.get_residences():
+                for switch in residence.get_iot_switches():
+                    devices.append({
+                        "id": switch.id,
+                        "name": switch.name,
+                        "power": getattr(switch, "power", "OFF"),
+                        "brightness": getattr(switch, "brightness", None),
+                        "canSetLevel": switch.canSetLevel if hasattr(switch, "canSetLevel") else False,
+                        "_switch": switch,
+                    })
+        leviton_devices_cache = devices
+        leviton_cache_time = now
+        return devices
+    except Exception as e:
+        print(f"Leviton devices error: {e}")
+        # Session may have expired, clear it
+        leviton_session = None
+        return []
+
+
+def _leviton_set_switch_sync(device_id, power=None, brightness=None):
+    """Control a Leviton switch/dimmer."""
+    devices = _leviton_get_devices_sync()
+    for d in devices:
+        if str(d["id"]) == str(device_id):
+            switch = d["_switch"]
+            attrs = {}
+            if power is not None:
+                attrs["power"] = power
+            if brightness is not None:
+                attrs["brightness"] = max(0, min(100, brightness))
+            try:
+                switch.update_attributes(attrs)
+                # Invalidate cache
+                global leviton_cache_time
+                leviton_cache_time = 0
+                return True
+            except Exception as e:
+                print(f"Leviton set error: {e}")
+                return False
+    return False
+
+
+async def leviton_get_devices():
+    return await asyncio.to_thread(_leviton_get_devices_sync)
+
+
+async def leviton_set_switch(device_id, power=None, brightness=None):
+    return await asyncio.to_thread(_leviton_set_switch_sync, device_id, power, brightness)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket broadcast to browser clients
 # ---------------------------------------------------------------------------
 async def broadcast(message: dict):
@@ -552,6 +653,43 @@ async def api_sensors():
     return JSONResponse({"sensors": zwave_sensors, "nodes": sensor_nodes})
 
 
+# --- Leviton Lights ---
+@app.get("/api/lights")
+async def api_lights():
+    devices = await leviton_get_devices()
+    return JSONResponse([
+        {
+            "id": d["id"],
+            "name": d["name"],
+            "power": d["power"],
+            "brightness": d["brightness"],
+            "canSetLevel": d["canSetLevel"],
+        }
+        for d in devices
+    ])
+
+
+@app.post("/api/lights/{device_id}/toggle")
+async def api_light_toggle(device_id: str):
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            new_power = "OFF" if d["power"] == "ON" else "ON"
+            ok = await leviton_set_switch(device_id, power=new_power)
+            if ok:
+                return JSONResponse({"success": True, "power": new_power})
+            return JSONResponse({"error": "Failed to toggle"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
+
+
+@app.post("/api/lights/{device_id}/brightness")
+async def api_light_brightness(device_id: str, level: int = Query(..., ge=0, le=100)):
+    ok = await leviton_set_switch(device_id, brightness=level)
+    if ok:
+        return JSONResponse({"success": True, "brightness": level})
+    return JSONResponse({"error": "Failed to set brightness"}, status_code=502)
+
+
 # --- Weather (PWS via Weather Underground) ---
 weather_cache = {}
 weather_cache_time = 0
@@ -687,7 +825,46 @@ async def api_roku_overlay():
             "cool_setpoint_c": thermostat.get("cool_setpoint_c"),
         },
         "sensors": sensor_list,
+        "lights": [
+            {
+                "id": d["id"],
+                "name": d["name"],
+                "power": d["power"],
+                "brightness": d["brightness"],
+                "canSetLevel": d["canSetLevel"],
+            }
+            for d in (await leviton_get_devices())
+        ],
     })
+
+
+@app.post("/api/roku/lights/{device_id}/toggle")
+async def api_roku_light_toggle(device_id: str):
+    """Toggle a Leviton light from the Roku remote."""
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            new_power = "OFF" if d["power"] == "ON" else "ON"
+            ok = await leviton_set_switch(device_id, power=new_power)
+            if ok:
+                return JSONResponse({"success": True, "power": new_power})
+            return JSONResponse({"error": "Failed to toggle"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
+
+
+@app.post("/api/roku/lights/{device_id}/brightness")
+async def api_roku_light_brightness(device_id: str, delta: int = Query(..., description="Brightness change, e.g. 10 or -10")):
+    """Adjust a Leviton dimmer brightness from the Roku remote."""
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            current = d["brightness"] if d["brightness"] is not None else (100 if d["power"] == "ON" else 0)
+            new_level = max(0, min(100, current + delta))
+            ok = await leviton_set_switch(device_id, brightness=new_level)
+            if ok:
+                return JSONResponse({"success": True, "brightness": new_level})
+            return JSONResponse({"error": "Failed to adjust"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
 
 
 @app.post("/api/roku/thermostat/setpoint")

@@ -158,6 +158,32 @@ end sub
 
 
 ' =========================================================================
+' Light control API calls
+' =========================================================================
+
+sub toggleLight(deviceId as String)
+    task = CreateObject("roSGNode", "PostTask")
+    task.ObserveField("responseData", "onLightActionResponse")
+    task.requestUrl = m.serverBase + "/api/roku/lights/" + deviceId + "/toggle"
+    task.control = "run"
+    m.lightActionTask = task
+end sub
+
+sub adjustLightBrightness(deviceId as String, delta as Integer)
+    task = CreateObject("roSGNode", "PostTask")
+    task.ObserveField("responseData", "onLightActionResponse")
+    task.requestUrl = m.serverBase + "/api/roku/lights/" + deviceId + "/brightness?delta=" + Str(delta).Trim()
+    task.control = "run"
+    m.lightActionTask = task
+end sub
+
+sub onLightActionResponse()
+    ' Refresh overlay data to show updated light state
+    fetchOverlayData()
+end sub
+
+
+' =========================================================================
 ' UI helpers
 ' =========================================================================
 
@@ -265,6 +291,34 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
             else if key = "OK"
                 cycleThermostatMode()
                 return true
+            end if
+        end if
+
+        ' Light controls when lights section is focused
+        isLights = m.infoOverlay.callFunc("isLightsFocused")
+        if isLights
+            lightId = m.infoOverlay.callFunc("getFocusedLightId")
+            if lightId <> ""
+                if key = "OK"
+                    toggleLight(lightId)
+                    return true
+                else if key = "right"
+                    canDim = m.infoOverlay.callFunc("getFocusedLightCanDim")
+                    if canDim
+                        adjustLightBrightness(lightId, 10)
+                    else
+                        toggleLight(lightId)
+                    end if
+                    return true
+                else if key = "left"
+                    canDim = m.infoOverlay.callFunc("getFocusedLightCanDim")
+                    if canDim
+                        adjustLightBrightness(lightId, -10)
+                    else
+                        toggleLight(lightId)
+                    end if
+                    return true
+                end if
             end if
         end if
 

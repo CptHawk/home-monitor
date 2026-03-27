@@ -47,39 +47,55 @@
     <!-- Thermostat section -->
     <Label id="thermostatHeader"
            text="Thermostat"
-           translation="[1420,260]"
+           translation="[1420,250]"
            width="480"
            font="font:MediumBoldSystemFont"
            color="#FFB74D"
            horizAlign="left" />
     <Label id="thermostatTemp"
-           translation="[1420,300]"
+           translation="[1420,285]"
            width="480"
            font="font:LargeBoldSystemFont"
            color="#FFFFFF" />
     <Label id="thermostatDetails"
-           translation="[1420,350]"
+           translation="[1420,330]"
            width="480"
            font="font:SmallSystemFont"
            color="#BBBBBB"
            wrap="true"
            maxLines="2" />
 
+    <!-- Lights section -->
+    <Label id="lightsHeader"
+           text="Lights"
+           translation="[1420,400]"
+           width="480"
+           font="font:MediumBoldSystemFont"
+           color="#FFD54F"
+           horizAlign="left" />
+    <Label id="lightsInfo"
+           translation="[1420,435]"
+           width="480"
+           font="font:SmallSystemFont"
+           color="#FFFFFF"
+           wrap="true"
+           maxLines="8" />
+
     <!-- Sensors section -->
     <Label id="sensorsHeader"
            text="Sensors"
-           translation="[1420,420]"
+           translation="[1420,640]"
            width="480"
            font="font:MediumBoldSystemFont"
            color="#CE93D8"
            horizAlign="left" />
     <Label id="sensorsInfo"
-           translation="[1420,460]"
+           translation="[1420,675]"
            width="480"
            font="font:SmallSystemFont"
            color="#FFFFFF"
            wrap="true"
-           maxLines="12" />
+           maxLines="8" />
 
     <!-- Help text at bottom -->
     <Label id="helpText"
