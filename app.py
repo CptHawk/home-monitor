@@ -617,6 +617,77 @@ async def api_radar():
     return JSONResponse({"error": "Radar unavailable"}, status_code=502)
 
 
+# --- Roku Interactive API ---
+@app.get("/api/roku/config")
+async def api_roku_config():
+    """Return camera list with individual stream URLs for Roku channel."""
+    go2rtc_base = f"http://{SERVER_HOST}:{GO2RTC_PORT}"
+    cameras = [
+        {"name": "Camera 1", "key": "camera-1"},
+        {"name": "Camera 2", "key": "camera-2"},
+        {"name": "Camera 3", "key": "camera-3"},
+        {"name": "Camera 4", "key": "camera-4"},
+        {"name": "Nest Doorbell", "key": "nest-doorbell"},
+    ]
+    return JSONResponse({
+        "grid_url": f"http://{SERVER_HOST}:{SERVER_PORT}/api/hls/grid.m3u8",
+        "cameras": [
+            {
+                "name": c["name"],
+                "stream_url": f"{go2rtc_base}/api/stream.m3u8?src={c['key']}",
+            }
+            for c in cameras
+        ],
+    })
+
+
+@app.get("/api/roku/overlay")
+async def api_roku_overlay():
+    """Return weather + sensor summary for Roku info overlay."""
+    weather = weather_cache.copy() if weather_cache else {}
+    thermostat = thermostat_cache.copy() if thermostat_cache else {}
+
+    sensor_list = []
+    nodes = await zwave_get_nodes()
+    if nodes:
+        for n in nodes:
+            if n.get("isControllerNode"):
+                continue
+            name = n.get("name", f"Node {n['id']}")
+            door_open = None
+            battery = None
+            for vid, val in n.get("values", {}).items():
+                cc_name = val.get("commandClassName", "")
+                prop = val.get("property", "")
+                if cc_name == "Battery" and prop == "level":
+                    battery = val.get("value")
+                elif cc_name in ("Binary Sensor", "Notification"):
+                    if prop in ("Any", "Access Control", "sensorState"):
+                        door_open = bool(val.get("value"))
+            sensor_list.append({
+                "name": name,
+                "doorOpen": door_open,
+                "battery": battery,
+            })
+
+    return JSONResponse({
+        "weather": {
+            "temp_f": weather.get("temp_f"),
+            "humidity": weather.get("humidity"),
+            "windSpeed": weather.get("windSpeed"),
+            "windDir": weather.get("windDir"),
+            "condition": weather.get("neighborhood", ""),
+        },
+        "thermostat": {
+            "temp_f": thermostat.get("temperature_f"),
+            "humidity": thermostat.get("humidity"),
+            "mode": thermostat.get("mode"),
+            "hvac_status": thermostat.get("hvac_status"),
+        },
+        "sensors": sensor_list,
+    })
+
+
 # --- HLS Grid Stream (for Roku) ---
 @app.get("/api/hls/{filename}")
 async def api_hls(filename: str):

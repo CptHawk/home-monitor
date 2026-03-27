@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="InfoOverlay" extends="Group">
+  <interface>
+    <field id="overlayData" type="assocarray" onChange="onDataChanged" />
+    <field id="visible" type="boolean" value="false" />
+  </interface>
+
+  <children>
+    <!-- Semi-transparent background -->
+    <Rectangle id="bg"
+               width="520"
+               height="1080"
+               translation="[1400,0]"
+               color="#000000"
+               opacity="0.85" />
+
+    <!-- Title -->
+    <Label id="titleLabel"
+           text="Home Monitor"
+           translation="[1420,20]"
+           width="480"
+           font="font:LargeBoldSystemFont"
+           color="#00FF88"
+           horizAlign="center" />
+
+    <!-- Weather section -->
+    <Label id="weatherHeader"
+           text="Weather"
+           translation="[1420,80]"
+           width="480"
+           font="font:MediumBoldSystemFont"
+           color="#4FC3F7"
+           horizAlign="left" />
+    <Label id="weatherTemp"
+           translation="[1420,120]"
+           width="480"
+           font="font:LargeBoldSystemFont"
+           color="#FFFFFF" />
+    <Label id="weatherDetails"
+           translation="[1420,170]"
+           width="480"
+           font="font:SmallSystemFont"
+           color="#BBBBBB"
+           wrap="true"
+           maxLines="3" />
+
+    <!-- Thermostat section -->
+    <Label id="thermostatHeader"
+           text="Thermostat"
+           translation="[1420,260]"
+           width="480"
+           font="font:MediumBoldSystemFont"
+           color="#FFB74D"
+           horizAlign="left" />
+    <Label id="thermostatTemp"
+           translation="[1420,300]"
+           width="480"
+           font="font:LargeBoldSystemFont"
+           color="#FFFFFF" />
+    <Label id="thermostatDetails"
+           translation="[1420,350]"
+           width="480"
+           font="font:SmallSystemFont"
+           color="#BBBBBB"
+           wrap="true"
+           maxLines="2" />
+
+    <!-- Sensors section -->
+    <Label id="sensorsHeader"
+           text="Sensors"
+           translation="[1420,420]"
+           width="480"
+           font="font:MediumBoldSystemFont"
+           color="#CE93D8"
+           horizAlign="left" />
+    <Label id="sensorsInfo"
+           translation="[1420,460]"
+           width="480"
+           font="font:SmallSystemFont"
+           color="#FFFFFF"
+           wrap="true"
+           maxLines="12" />
+
+    <!-- Help text at bottom -->
+    <Label id="helpText"
+           text="[*] Hide  |  [OK] Fullscreen  |  [<>] Camera  |  [Back] Grid"
+           translation="[1420,1020]"
+           width="480"
+           font="font:SmallestSystemFont"
+           color="#666666"
+           wrap="true"
+           maxLines="2" />
+  </children>
+
+  <script type="text/brightscript" uri="pkg:/components/InfoOverlay.brs" />
+</component>
