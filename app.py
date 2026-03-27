@@ -40,6 +40,9 @@ WU_STATION_ID = os.getenv("WU_STATION_ID", "")
 WU_API_KEY = os.getenv("WU_API_KEY", "YOUR_WU_API_KEY")
 RADAR_STATION = os.getenv("RADAR_STATION", "YOUR_RADAR_STATION")
 
+LEVITON_EMAIL = os.getenv("LEVITON_EMAIL", "")
+LEVITON_PASSWORD = os.getenv("LEVITON_PASSWORD", "")
+
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("SERVER_PORT", "8092")
 
@@ -57,6 +60,10 @@ thermostat_cache_time = 0
 
 zwave_sensors = {}
 ws_clients: list[WebSocket] = []
+
+leviton_session = None
+leviton_devices_cache = []
+leviton_cache_time = 0
 
 # ---------------------------------------------------------------------------
 # UniFi Protect helpers
@@ -342,6 +349,100 @@ async def zwave_get_nodes():
     return await asyncio.to_thread(zwave_call_api_sync, "getNodes")
 
 # ---------------------------------------------------------------------------
+# Leviton Decora Smart WiFi helpers (cloud API via decora_wifi)
+# ---------------------------------------------------------------------------
+def _leviton_login_sync():
+    """Log in to Leviton cloud. Returns session or None."""
+    global leviton_session
+    if not LEVITON_EMAIL or not LEVITON_PASSWORD:
+        return None
+    try:
+        from decora_wifi import DecoraWiFiSession
+        session = DecoraWiFiSession()
+        session.login(LEVITON_EMAIL, LEVITON_PASSWORD)
+        leviton_session = session
+        return session
+    except Exception as e:
+        print(f"Leviton login error: {e}")
+        return None
+
+
+def _leviton_get_session_sync():
+    global leviton_session
+    if leviton_session is not None:
+        return leviton_session
+    return _leviton_login_sync()
+
+
+def _leviton_get_devices_sync():
+    """Fetch all Leviton switches/dimmers. Returns list of dicts."""
+    global leviton_devices_cache, leviton_cache_time
+    now = time.time()
+    if leviton_devices_cache and now - leviton_cache_time < 30:
+        return leviton_devices_cache
+
+    session = _leviton_get_session_sync()
+    if not session:
+        return []
+
+    try:
+        from decora_wifi.models.residential_account import ResidentialAccount
+        devices = []
+        perms = session.user.get_residential_permissions()
+        for perm in perms:
+            acct = ResidentialAccount(session, perm.residentialAccountId)
+            for residence in acct.get_residences():
+                for switch in residence.get_iot_switches():
+                    devices.append({
+                        "id": switch.id,
+                        "name": switch.name,
+                        "power": getattr(switch, "power", "OFF"),
+                        "brightness": getattr(switch, "brightness", None),
+                        "canSetLevel": switch.canSetLevel if hasattr(switch, "canSetLevel") else False,
+                        "_switch": switch,
+                    })
+        leviton_devices_cache = devices
+        leviton_cache_time = now
+        return devices
+    except Exception as e:
+        print(f"Leviton devices error: {e}")
+        # Session may have expired, clear it
+        leviton_session = None
+        return []
+
+
+def _leviton_set_switch_sync(device_id, power=None, brightness=None):
+    """Control a Leviton switch/dimmer."""
+    devices = _leviton_get_devices_sync()
+    for d in devices:
+        if str(d["id"]) == str(device_id):
+            switch = d["_switch"]
+            attrs = {}
+            if power is not None:
+                attrs["power"] = power
+            if brightness is not None:
+                attrs["brightness"] = max(0, min(100, brightness))
+            try:
+                switch.update_attributes(attrs)
+                # Invalidate cache
+                global leviton_cache_time
+                leviton_cache_time = 0
+                return True
+            except Exception as e:
+                print(f"Leviton set error: {e}")
+                return False
+    return False
+
+
+async def leviton_get_devices():
+    return await asyncio.to_thread(_leviton_get_devices_sync)
+
+
+async def leviton_set_switch(device_id, power=None, brightness=None):
+    return await asyncio.to_thread(_leviton_set_switch_sync, device_id, power, brightness)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket broadcast to browser clients
 # ---------------------------------------------------------------------------
 async def broadcast(message: dict):
@@ -552,6 +653,43 @@ async def api_sensors():
     return JSONResponse({"sensors": zwave_sensors, "nodes": sensor_nodes})
 
 
+# --- Leviton Lights ---
+@app.get("/api/lights")
+async def api_lights():
+    devices = await leviton_get_devices()
+    return JSONResponse([
+        {
+            "id": d["id"],
+            "name": d["name"],
+            "power": d["power"],
+            "brightness": d["brightness"],
+            "canSetLevel": d["canSetLevel"],
+        }
+        for d in devices
+    ])
+
+
+@app.post("/api/lights/{device_id}/toggle")
+async def api_light_toggle(device_id: str):
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            new_power = "OFF" if d["power"] == "ON" else "ON"
+            ok = await leviton_set_switch(device_id, power=new_power)
+            if ok:
+                return JSONResponse({"success": True, "power": new_power})
+            return JSONResponse({"error": "Failed to toggle"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
+
+
+@app.post("/api/lights/{device_id}/brightness")
+async def api_light_brightness(device_id: str, level: int = Query(..., ge=0, le=100)):
+    ok = await leviton_set_switch(device_id, brightness=level)
+    if ok:
+        return JSONResponse({"success": True, "brightness": level})
+    return JSONResponse({"error": "Failed to set brightness"}, status_code=502)
+
+
 # --- Weather (PWS via Weather Underground) ---
 weather_cache = {}
 weather_cache_time = 0
@@ -615,6 +753,211 @@ async def api_radar():
     except Exception:
         pass
     return JSONResponse({"error": "Radar unavailable"}, status_code=502)
+
+
+# --- Roku Interactive API ---
+@app.get("/api/roku/config")
+async def api_roku_config():
+    """Return camera list with individual stream URLs for Roku channel."""
+    go2rtc_base = f"http://{SERVER_HOST}:{GO2RTC_PORT}"
+    cameras = [
+        {"name": "Camera 1", "key": "camera-1"},
+        {"name": "Camera 2", "key": "camera-2"},
+        {"name": "Camera 3", "key": "camera-3"},
+        {"name": "Camera 4", "key": "camera-4"},
+        {"name": "Nest Doorbell", "key": "nest-doorbell"},
+    ]
+    return JSONResponse({
+        "grid_url": f"http://{SERVER_HOST}:{SERVER_PORT}/api/hls/grid.m3u8",
+        "cameras": [
+            {
+                "name": c["name"],
+                "stream_url": f"{go2rtc_base}/api/stream.m3u8?src={c['key']}",
+            }
+            for c in cameras
+        ],
+    })
+
+
+@app.get("/api/roku/overlay")
+async def api_roku_overlay():
+    """Return weather + sensor summary for Roku info overlay."""
+    weather = weather_cache.copy() if weather_cache else {}
+    thermostat = thermostat_cache.copy() if thermostat_cache else {}
+
+    sensor_list = []
+    nodes = await zwave_get_nodes()
+    if nodes:
+        for n in nodes:
+            if n.get("isControllerNode"):
+                continue
+            name = n.get("name", f"Node {n['id']}")
+            door_open = None
+            battery = None
+            for vid, val in n.get("values", {}).items():
+                cc_name = val.get("commandClassName", "")
+                prop = val.get("property", "")
+                if cc_name == "Battery" and prop == "level":
+                    battery = val.get("value")
+                elif cc_name in ("Binary Sensor", "Notification"):
+                    if prop in ("Any", "Access Control", "sensorState"):
+                        door_open = bool(val.get("value"))
+            sensor_list.append({
+                "name": name,
+                "doorOpen": door_open,
+                "battery": battery,
+            })
+
+    return JSONResponse({
+        "weather": {
+            "temp_f": weather.get("temp_f"),
+            "humidity": weather.get("humidity"),
+            "windSpeed": weather.get("windSpeed"),
+            "windDir": weather.get("windDir"),
+            "condition": weather.get("neighborhood", ""),
+        },
+        "thermostat": {
+            "temp_f": thermostat.get("temperature_f"),
+            "humidity": thermostat.get("humidity"),
+            "mode": thermostat.get("mode"),
+            "hvac_status": thermostat.get("hvac_status"),
+            "heat_setpoint_c": thermostat.get("heat_setpoint_c"),
+            "cool_setpoint_c": thermostat.get("cool_setpoint_c"),
+        },
+        "sensors": sensor_list,
+        "lights": [
+            {
+                "id": d["id"],
+                "name": d["name"],
+                "power": d["power"],
+                "brightness": d["brightness"],
+                "canSetLevel": d["canSetLevel"],
+            }
+            for d in (await leviton_get_devices())
+        ],
+    })
+
+
+@app.post("/api/roku/lights/{device_id}/toggle")
+async def api_roku_light_toggle(device_id: str):
+    """Toggle a Leviton light from the Roku remote."""
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            new_power = "OFF" if d["power"] == "ON" else "ON"
+            ok = await leviton_set_switch(device_id, power=new_power)
+            if ok:
+                return JSONResponse({"success": True, "power": new_power})
+            return JSONResponse({"error": "Failed to toggle"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
+
+
+@app.post("/api/roku/lights/{device_id}/brightness")
+async def api_roku_light_brightness(device_id: str, delta: int = Query(..., description="Brightness change, e.g. 10 or -10")):
+    """Adjust a Leviton dimmer brightness from the Roku remote."""
+    devices = await leviton_get_devices()
+    for d in devices:
+        if str(d["id"]) == device_id:
+            current = d["brightness"] if d["brightness"] is not None else (100 if d["power"] == "ON" else 0)
+            new_level = max(0, min(100, current + delta))
+            ok = await leviton_set_switch(device_id, brightness=new_level)
+            if ok:
+                return JSONResponse({"success": True, "brightness": new_level})
+            return JSONResponse({"error": "Failed to adjust"}, status_code=502)
+    return JSONResponse({"error": "Device not found"}, status_code=404)
+
+
+@app.post("/api/roku/thermostat/setpoint")
+async def api_roku_thermostat_setpoint(delta_f: float = Query(..., description="Temperature change in F, e.g. 1 or -1")):
+    """Adjust thermostat setpoint by delta degrees Fahrenheit."""
+    device_id = None
+    devices = await nest_get_devices()
+    for d in devices:
+        if "THERMOSTAT" in d.get("type", ""):
+            device_id = d.get("name")
+            break
+    if not device_id:
+        return JSONResponse({"error": "No thermostat found"}, status_code=404)
+
+    token = await nest_get_token()
+    if not token:
+        return JSONResponse({"error": "Nest not authorized"}, status_code=401)
+
+    traits = {}
+    for d in devices:
+        if d.get("name") == device_id:
+            traits = d.get("traits", {})
+
+    mode = traits.get("sdm.devices.traits.ThermostatMode", {}).get("mode", "OFF")
+    setpoint = traits.get("sdm.devices.traits.ThermostatTemperatureSetpoint", {})
+
+    delta_c = delta_f * 5 / 9
+
+    if mode == "HEAT":
+        current_c = setpoint.get("heatCelsius", 20)
+        new_c = round(current_c + delta_c, 1)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat"
+        params = {"heatCelsius": new_c}
+    elif mode == "COOL":
+        current_c = setpoint.get("coolCelsius", 24)
+        new_c = round(current_c + delta_c, 1)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool"
+        params = {"coolCelsius": new_c}
+    elif mode == "HEATCOOL":
+        heat_c = setpoint.get("heatCelsius", 20)
+        cool_c = setpoint.get("coolCelsius", 24)
+        command = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetRange"
+        params = {"heatCelsius": round(heat_c + delta_c, 1), "coolCelsius": round(cool_c + delta_c, 1)}
+    else:
+        return JSONResponse({"error": "Thermostat is OFF"}, status_code=400)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"https://smartdevicemanagement.googleapis.com/v1/{device_id}:executeCommand",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"command": command, "params": params},
+        )
+        if r.status_code == 200:
+            global thermostat_cache_time
+            thermostat_cache_time = 0
+            new_f = round(list(params.values())[0] * 9 / 5 + 32) if mode != "HEATCOOL" else None
+            return JSONResponse({"success": True, "new_setpoint_f": new_f, "params": params})
+        return JSONResponse({"error": r.text}, status_code=r.status_code)
+
+
+@app.post("/api/roku/thermostat/mode")
+async def api_roku_thermostat_mode(mode: str = Query(..., description="HEAT, COOL, HEATCOOL, or OFF")):
+    """Set thermostat mode."""
+    if mode not in ("HEAT", "COOL", "HEATCOOL", "OFF"):
+        return JSONResponse({"error": "Invalid mode. Use HEAT, COOL, HEATCOOL, or OFF"}, status_code=400)
+
+    device_id = None
+    devices = await nest_get_devices()
+    for d in devices:
+        if "THERMOSTAT" in d.get("type", ""):
+            device_id = d.get("name")
+            break
+    if not device_id:
+        return JSONResponse({"error": "No thermostat found"}, status_code=404)
+
+    token = await nest_get_token()
+    if not token:
+        return JSONResponse({"error": "Nest not authorized"}, status_code=401)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"https://smartdevicemanagement.googleapis.com/v1/{device_id}:executeCommand",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "command": "sdm.devices.commands.ThermostatMode.SetMode",
+                "params": {"mode": mode},
+            },
+        )
+        if r.status_code == 200:
+            global thermostat_cache_time
+            thermostat_cache_time = 0
+            return JSONResponse({"success": True, "mode": mode})
+        return JSONResponse({"error": r.text}, status_code=r.status_code)
 
 
 # --- HLS Grid Stream (for Roku) ---
