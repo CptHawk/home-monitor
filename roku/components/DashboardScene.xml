@@ -2,10 +2,17 @@
 <component name="DashboardScene" extends="Scene">
   <children>
     <Video id="gridVideo"
-           width="1920"
-           height="1080"
+           width="1920" height="720"
            translation="[0,0]"
            visible="true" />
+    <Poster id="panelStrip"
+            width="1920" height="360"
+            translation="[0,720]"
+            uri="http://YOUR_SERVER_IP:8092/api/panel-strip.png"
+            loadDisplayMode="scaleToFit" />
+    <Timer id="refreshTimer"
+           duration="30"
+           repeat="true" />
   </children>
   <script type="text/brightscript" uri="pkg:/components/DashboardScene.brs" />
 </component>

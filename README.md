@@ -1,6 +1,6 @@
 # Home Monitor
 
-A self-hosted home monitoring dashboard that unifies security cameras, smart home devices, weather data, and Z-Wave sensors into a single interface. Includes a web dashboard, a TV-optimized view, and a custom Roku channel for displaying live camera grids on TVs throughout your home.
+A self-hosted home monitoring dashboard that unifies security cameras, smart home devices, weather data, vehicle telemetry, and Z-Wave sensors into a single interface. Includes a web dashboard, a TV-optimized view, and a custom Roku channel for displaying live camera grids on TVs throughout your home.
 
 ![Dashboard Layout](https://img.shields.io/badge/cameras-5-green) ![Python](https://img.shields.io/badge/python-3.11+-blue) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
@@ -16,12 +16,13 @@ See [docs/FINDINGS.md](docs/FINDINGS.md) for full technical details on camera st
 - **Google Nest Doorbell** — WebRTC stream bridged and transcoded through go2rtc
 - **Google Nest Thermostat** — Real-time temperature, humidity, HVAC status via SDM API
 - **Z-Wave Door Sensors** — Real-time open/closed status via Z-Wave JS UI
+- **Kwikset Smart Lock** — Lock status and battery level via aiokwikset
+- **Vehicle Telemetry** — Samsara GPS/fuel data + Stellantis Uconnect EV charging, tire pressure, oil level, and odometer via py-uconnect
 - **Weather Underground PWS** — Local weather data from any nearby personal weather station
 - **NWS Radar** — Live weather radar loop for your region
-- **Weather Panel** — Pillow-rendered current conditions panel with outside/inside temps, humidity, wind, rain, UV, pressure, and thermostat status
-- **7-Day NWS Forecast** — Pillow-rendered forecast panel with high/low temps, precipitation chance, and daily conditions from the National Weather Service API
-- **Thermostat Integration** — Real-time Nest thermostat data (mode, HVAC status, setpoint) displayed in weather panel and ffmpeg grid overlay
-- **Roku TV Channel** — Custom sideloaded channel that displays a live HLS grid of all cameras with Pillow-rendered weather panels, 7-day forecast, and thermostat overlay
+- **5-Panel Info Strip** — Pillow-rendered strip with current weather, 7-day forecast, vehicle telemetry, network stats, and radar image. Displayed below the camera grid on Roku TVs via the Poster overlay approach.
+- **Roku TV Channel** — Custom sideloaded channel using a Video node (720p HLS camera grid) with a Poster node below for the info strip. The Poster refreshes every 30 seconds independently of the video stream. Standard 720p resolution is required for the Video node to ensure reliable HLS playback on Roku.
+- **Network Dashboard** — UniFi network stats including dual WAN status, client counts, gateway CPU/memory, and guest WiFi QR code
 - **Web Dashboard** — Responsive dark-themed UI accessible from any browser
 - **TV Dashboard** — 1920x1080 optimized layout for large displays
 
@@ -37,11 +38,12 @@ See [docs/FINDINGS.md](docs/FINDINGS.md) for full technical details on camera st
 [Weather Underground] ──HTTP──►  ┌─────┴──────┐     ┌──────────────┐
 [NWS Radar] ──HTTP───────────►  │  FastAPI    │────►│ Web Browser  │
 [Z-Wave JS UI] ──Socket.IO──►  │  :8092      │     │ (Dashboard)  │
-                                └──────┬──────┘     └──────────────┘
+[Samsara] ──HTTP─────────────►  │             │     └──────────────┘
+[Uconnect] ──HTTP────────────►  └──────┬──────┘
                                        │
                                 ┌──────┴──────┐     ┌──────────────┐
                                 │   ffmpeg    │────►│  Roku TV     │
-                                │ grid-stream │     │ (HLS Player) │
+                                │ grid-stream │     │ (HLS+Poster) │
                                 └─────────────┘     └──────────────┘
 ```
 
@@ -105,7 +107,7 @@ Open `http://YOUR_SERVER:8092` in your browser.
 ### 6. Start the Roku grid stream (optional)
 
 ```bash
-# Start the Pillow-rendered weather + forecast panels (updates every 30s)
+# Start the Pillow-rendered panel strip (weather, forecast, vehicle, network, radar)
 screen -dmS weatherpanel python3 scripts/render-weather-panel.py
 
 # Start the info overlay data fetcher (for ffmpeg drawtext fallback)
@@ -131,6 +133,54 @@ cd roku
 ./build.sh ROKU_IP rokudev_password
 ```
 
+## Vehicle Telemetry
+
+The dashboard integrates two vehicle data sources:
+
+- **Samsara** — GPS location, fuel level, engine state, and odometer for any vehicle with a Samsara OBD-II device. Create an API token at https://cloud.samsara.com/settings/api-tokens.
+- **py-uconnect (Stellantis)** — EV state of charge, charging status/level, tire pressures with warnings, oil level, battery voltage, and time-to-full-charge for Jeep 4xe, Fiat, Chrysler, etc. Uses the Stellantis Connected Services API via the [py-uconnect](https://github.com/nicoweb/py-uconnect) library.
+
+The vehicle panel in the info strip shows both vehicles with location (with "Home" geofencing), charging status, fuel/EV levels, tire pressures, and odometer readings.
+
+## Roku Channel
+
+The custom Roku channel uses a **Video + Poster overlay** approach:
+
+- **Video node** (top 720px) — Plays a live HLS grid stream of all cameras, generated by ffmpeg combining feeds via go2rtc's RTSP relay. The Video node is set to **720p height** (standard resolution) which is required for reliable HLS playback on Roku hardware.
+- **Poster node** (bottom 360px) — Displays the Pillow-rendered 5-panel info strip (weather, forecast, vehicle, network, radar). Refreshes every 30 seconds via a cache-busting timestamp URL, independent of the video stream.
+
+This approach avoids the complexity of rendering info panels inside the ffmpeg stream and allows the info strip to update on its own schedule without re-encoding video.
+
+### 5-Panel Strip Layout
+
+```
+┌──────────┬──────────┬──────────┬──────────┬──────────┐
+│ Weather  │ Forecast │ Vehicle  │ Network  │  Radar   │
+│  360px   │  240px   │  400px   │  400px   │  520px   │
+│          │          │          │          │          │
+│ Outside  │ 7-day    │ Jeep 4xe │ Dual WAN │ NWS loop │
+│ Inside   │ hi/lo    │ RAV4     │ Clients  │          │
+│ Doors    │ precip%  │ Tires    │ QR code  │          │
+└──────────┴──────────┴──────────┴──────────┴──────────┘
+                    1920 x 340 pixels
+```
+
+### Deploying to multiple Roku TVs
+
+```bash
+# Deploy to all Roku TVs on your network
+for ip in YOUR_ROKU_IP_1 YOUR_ROKU_IP_2 YOUR_ROKU_IP_3; do
+  roku/build.sh $ip your_password
+done
+
+# Launch on all TVs via ECP
+for ip in YOUR_ROKU_IP_1 YOUR_ROKU_IP_2 YOUR_ROKU_IP_3; do
+  curl -s -X POST "http://$ip:8060/launch/dev"
+done
+```
+
+Roku TVs must have **Developer Mode** enabled (Settings > System > Advanced system settings > Developer settings).
+
 ## Prerequisites
 
 | Component | Required For |
@@ -138,7 +188,7 @@ cd roku
 | **Docker** | go2rtc, Z-Wave JS UI |
 | **Python 3.11+** | FastAPI backend |
 | **ffmpeg** | Roku grid stream |
-| **Pillow (Python)** | Weather and forecast panel rendering |
+| **Pillow (Python)** | Weather, forecast, vehicle, and network panel rendering |
 | **chromium** | TV screenshot fallback (optional) |
 | **UniFi Protect** | Camera snapshots and RTSP streams |
 | **Z-Wave USB Stick** | Door/window sensors (tested with Zooz ZST39 LR) |
@@ -170,7 +220,7 @@ curl -X POST https://oauth2.googleapis.com/token \
 
 7. Copy the `refresh_token` from the response into your `.env` file
 
-**Note:** If your Google account has Advanced Protection enabled, you will need to temporarily disable it for the OAuth flow. Re-enable it after — the refresh token persists. See [docs/FINDINGS.md](docs/FINDINGS.md) for details.
+**Note:** If your Google account has Advanced Protection enabled, you will need to temporarily disable it for the OAuth flow. Re-enable it after -- the refresh token persists. See [docs/FINDINGS.md](docs/FINDINGS.md) for details.
 
 ## go2rtc Camera Configuration
 
@@ -186,45 +236,9 @@ go2rtc bridges various camera protocols into standard formats (RTSP, MJPEG, HLS,
 
 ### Nest Doorbell
 
-go2rtc has native Nest/WebRTC support. Add your SDM API credentials to the config. The raw WebRTC stream needs transcoding to produce clean H.264 — use go2rtc's ffmpeg bridge.
+go2rtc has native Nest/WebRTC support. Add your SDM API credentials to the config. The raw WebRTC stream needs transcoding to produce clean H.264 -- use go2rtc's ffmpeg bridge.
 
 **Note:** Nest Doorbell Wired (3rd gen) does not support the `GenerateImage` snapshot API. go2rtc bridges the WebRTC stream and can serve snapshots via `/api/frame.jpeg`.
-
-## Roku Channel
-
-The custom Roku channel plays a live HLS grid stream generated by ffmpeg combining all camera feeds via go2rtc's RTSP relay.
-
-### Layout
-
-```
-┌───────────────┬───────────────┬──────────┐
-│   Camera 1    │   Camera 2    │          │
-│   720x370     │   720x370     │ Doorbell │
-├───────────────┼───────────────┤ 480x1080 │
-│   Camera 3    │   Camera 4    │          │
-│   720x370     │   720x370     │          │
-├──────────┬────┴───────┬───────┴──────────┤
-│  Radar   │  Weather   │    7-Day         │
-│  480x340 │  Panel     │    Forecast      │
-│          │  480x340   │    480x340       │
-└──────────┴────────────┴──────────────────┘
-```
-
-### Deploying to multiple Roku TVs
-
-```bash
-# Deploy to all Roku TVs on your network
-for ip in YOUR_ROKU_IP_1 YOUR_ROKU_IP_2 YOUR_ROKU_IP_3; do
-  roku/build.sh $ip your_password
-done
-
-# Launch on all TVs via ECP
-for ip in YOUR_ROKU_IP_1 YOUR_ROKU_IP_2 YOUR_ROKU_IP_3; do
-  curl -s -X POST "http://$ip:8060/launch/dev"
-done
-```
-
-Roku TVs must have **Developer Mode** enabled (Settings > System > Advanced system settings > Developer settings).
 
 ## Z-Wave Sensors
 
@@ -250,8 +264,13 @@ python3 scripts/zwave-cli.py stopInclusion
 | `/api/thermostat` | GET | Nest thermostat readings |
 | `/api/doorbell` | GET | Nest doorbell status |
 | `/api/sensors` | GET | Z-Wave sensor states |
+| `/api/kwikset` | GET | Kwikset lock status and battery |
 | `/api/weather` | GET | Weather Underground PWS data |
+| `/api/forecast` | GET | NWS 7-day forecast |
 | `/api/radar` | GET | NWS radar image (proxied) |
+| `/api/vehicle` | GET | Vehicle telemetry (Samsara + Uconnect) |
+| `/api/network` | GET | UniFi network stats |
+| `/api/panel-strip.png` | GET | Pillow-rendered 5-panel info strip |
 | `/api/hls/grid.m3u8` | GET | HLS grid stream for Roku |
 | `/api/tv-screenshot` | GET | Screenshot of TV dashboard |
 | `/api/status` | GET | System status |
@@ -262,7 +281,7 @@ python3 scripts/zwave-cli.py stopInclusion
 
 The dashboard supports two weather sources:
 
-- **Weather Underground PWS** — Pull data from any nearby personal weather station. Find stations at https://www.wunderground.com/wundermap. The WU public API key included works for basic access.
+- **Weather Underground PWS** — Pull data from any nearby personal weather station. Find stations at https://www.wunderground.com/wundermap.
 - **NWS Radar** — Animated radar loop from the nearest NEXRAD station. Find your station at https://radar.weather.gov.
 - **Weather Panel** — Pillow-rendered current conditions panel with outside/inside temps, humidity, wind, rain, UV, pressure, and thermostat status
 - **7-Day NWS Forecast** — Pillow-rendered forecast panel with high/low temps, precipitation chance, and daily conditions from the National Weather Service API
